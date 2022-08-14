@@ -36,9 +36,9 @@
       "slots_min": 1,
       "slots_max": 4,
       "SpawnPoints": "BotZone",
-      "BotSide": "Savage",
+      "BotSide": "Usec",
       "BotPreset": "normal",
-      "WildSpawnType": "assault",
+      "WildSpawnType": "pmcBot",
       "isPlayers": false
     },
     {
