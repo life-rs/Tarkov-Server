@@ -72,6 +72,16 @@ class ItemController
     }
 
     /**
+     * Determines whether the item is an Ammo Box by TemplateId
+     * @param {*} tpl 
+     * @returns {boolean} true/false
+     */
+     static isAmmo(tpl) {
+        return ItemController.getDatabaseItems()[tpl]._parent === "5485a8684bdc2da71d8b4567"
+   }
+
+
+    /**
      * Create an Ammo Box via a TemplateId
      * @param {*} tpl 
      * @returns {Array} new attached to the box items
@@ -270,6 +280,9 @@ static getRandomPresetIdFromWeaponId(WepId) {
 }
 
 static getStandardPreset(templateId) {
+
+    let preset = { _items: [] };
+
     if (!ItemController.hasPreset(templateId)) {
         return false;
     }
@@ -281,8 +294,8 @@ static getStandardPreset(templateId) {
             return p;
         }
     }
-
-    return allPresets[0];
+    preset = allPresets[0];
+    return preset;
 }
 
 static getBaseItemTpl(presetId) {

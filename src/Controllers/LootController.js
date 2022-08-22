@@ -5,6 +5,7 @@ const utility = require('./../../core/util/utility');
 const e = require('express');
 const mathjs = require('mathjs');
 const { DatabaseController } = require('./DatabaseController');
+const { logger } = require('../../core/util/logger');
 
 /**
  * 
@@ -71,11 +72,11 @@ class LootController
             logger.logWarning("Loot Modifier: Common: Couldn't find the config. Reset to 0.95.")
         }
         
-        logger.logInfo("Loot Modifier: Location: " + LootController.LocationLootChanceModifierFromFile);
-        logger.logInfo("Loot Modifier: Superrare: " + modifierSuperRare);
-        logger.logInfo("Loot Modifier: Rare: " + modifierRare);
-        logger.logInfo("Loot Modifier: UnCommon: " + modifierUnCommon);
-        logger.logInfo("Loot Modifier: Common: " + modifierCommon);
+        // logger.logInfo("Loot Modifier: Location: " + LootController.LocationLootChanceModifierFromFile);
+        // logger.logInfo("Loot Modifier: Superrare: " + modifierSuperRare);
+        // logger.logInfo("Loot Modifier: Rare: " + modifierRare);
+        // logger.logInfo("Loot Modifier: UnCommon: " + modifierUnCommon);
+        // logger.logInfo("Loot Modifier: Common: " + modifierCommon);
         
         // ----------------------------------------------------------------------------------------
         // Paulo: Cough, Cough, modify these lower as people are too stupid to change it themselves
@@ -98,7 +99,11 @@ class LootController
      */
     static GetItemRarityType(itemTemplate) {
 
-        if(LootController.LootRarities[itemTemplate._props.Name] === undefined) {
+      let localeTempl = DatabaseController.getDatabase().locales.global.en.templates[itemTemplate._id].Name;
+      if(!localeTempl || localeTempl == "undefined" || localeTempl == null || localeTempl === "")
+        localeTempl = itemTemplate._props.Name;
+
+        if(LootController.LootRarities[localeTempl] === undefined) {
       
           const backgroundColor = itemTemplate._props.BackgroundColor;
           const itemExperience = itemTemplate._props.LootExperience < 10 ? 10 : itemTemplate._props.LootExperience;
@@ -110,15 +115,15 @@ class LootController
       
           let item_price = ItemController.getTemplatePrice(itemTemplate._id);
           if(itemTemplate._props.ammoType !== undefined) {
-            item_price = item_price * 300 * itemTemplate._props.StackMaxSize;
+            item_price = item_price * 310 * itemTemplate._props.StackMaxSize;
           }
           // If Money
           if(ItemController.isMoney(itemTemplate._id)) {
-            item_price = (item_price * 6000);
+            item_price = (item_price * 6100);
           }
 
           let itemCalculation = 
-            ((itemExperience + examineExperience + (backgroundColor == "violet" ? 20 : 10)) * 1000)
+            ((itemExperience + examineExperience + (backgroundColor == "violet" || backgroundColor == "blue" ? 20 : 10)) * 1000)
               + (item_price * 0.01); 
 
           // if ammo_box
@@ -128,6 +133,9 @@ class LootController
           // If weapon part / mod
           if(itemTemplate._props.ItemSound !== undefined && itemTemplate._props.ItemSound.includes("mod")) {
             itemCalculation *= 1.5;
+          }
+          if(backgroundColor === "blue") {
+            itemCalculation *= 2.09;
           }
           
           itemCalculation = Math.round(itemCalculation / 10000);
@@ -143,11 +151,11 @@ class LootController
               itemRarityType = "NOT_EXIST";
             }
             else {
-              if (itemCalculation >= 7) {
+              if (itemCalculation >= 9) {
                   itemRarityType = "SUPERRARE";
               } else if (itemCalculation >= 5) {
                   itemRarityType = "RARE";
-              } else if (itemCalculation >= 2) {
+              } else if (itemCalculation >= 3) {
                   itemRarityType = "UNCOMMON";
               }
             }
@@ -155,12 +163,12 @@ class LootController
             itemRarityType = "SUPERRARE";
           }
       
-          LootController.LootRarities[itemTemplate._props.Name] = itemRarityType;
+          LootController.LootRarities[localeTempl] = itemRarityType;
       
         }
       
       
-        return LootController.LootRarities[itemTemplate._props.Name];
+        return LootController.LootRarities[localeTempl];
       }
       
       /**
@@ -183,11 +191,12 @@ class LootController
           const modifierCommon = LootController.LootModifiers.modifierCommon;
       
           if(in_additionalLootModifier === undefined)
-            in_additionalLootModifier = 1.5;
+            in_additionalLootModifier = 1.0;
             
-          in_additionalLootModifier *= 1.3;
+          in_additionalLootModifier *= 2;
           in_additionalLootModifier *= LootController.LocationLootChanceModifierFromFile;
-          in_additionalLootModifier *= DatabaseController.getDatabase().globals.GlobalLootChanceModifier;
+          const globals = DatabaseController.getDatabase().globals;
+          in_additionalLootModifier *= globals.config.GlobalLootChanceModifier;
           
           if(out_itemsRemoved == undefined)
             out_itemsRemoved = {};
@@ -290,26 +299,24 @@ class LootController
         let LootListItems = LootController.GenerateLootList(ContainerId, in_mapName);
         if(isAirdrop) {
           LootListItems = LootController.GenerateAirdropLootList(ContainerId, in_mapName, container2D);
-          logger.logInfo(`Airdrop container contains ${LootListItems.length} items!`);
+          // logger.logInfo(`Airdrop container contains ${LootListItems.length} items!`);
         }
         if(isWeaponBox) {
           // logger.logInfo(`This is a weapon box container`);
+          LootListItems = LootController.GenerateWeaponBoxLootList(ContainerId, in_mapName, container2D);
         }
        
+        let parentId = _items[0]._id;
+        if(parentId == null) {
+          // parentId = utility.generateNewId(undefined, 3);
+          parentId = utility.generateNewIdQuick();
+          _items[0]._id = parentId;
+        }
 
-        
-
-            let parentId = _items[0]._id;
-            if(parentId == null) {
-              // parentId = utility.generateNewId(undefined, 3);
-              parentId = utility.generateNewIdQuick();
-              _items[0]._id = parentId;
-            }
-
-            if(LootListItems.length == 0) {
-              logger.logError(`EmptyContainer: ${ContainerId}`);
-              return false;
-          }
+        if(LootListItems.length == 0) {
+          logger.logError(`EmptyContainer: ${ContainerId}`);
+          return false;
+        }
             const idPrefix = parentId.substring(0, parentId.length - 4);
             let idSuffix = parseInt(parentId.substring(parentId.length - 4), 16) + 1;
           
@@ -317,8 +324,13 @@ class LootController
           
             // roll a maximum number of items  to spawn in the container between 0 and max slot count
             // const minCount = Math.max(1, _RollMaxItemsToSpawn(ContainerTemplate));
-            const minCount = Math.max(1, Math.round(Math.random() * containerTemplate._props.Grids[0]._props.cellsV * containerTemplate._props.Grids[0]._props.cellsH));
+            const minCount = 
+            isWeaponBox ? LootListItems.length :
+            Math.max(1, 
+              Math.round(Math.random() * containerTemplate._props.Grids[0]._props.cellsV * containerTemplate._props.Grids[0]._props.cellsH));
   
+            // const minCount = Math.max(1, 
+            //   utility.getRandomInt(containerTemplate._props.Grids[0]._props.minCount, containerTemplate._props.Grids[0]._props.maxCount));
             
           
               let usedLootItems = [];
@@ -326,16 +338,16 @@ class LootController
               // we finished generating spawn for this container now its time to roll items to put in container
               let itemWidth = 0;
               let itemHeight = 0;
+              let indexRolled = [];
               mainIterator: for (let i = 0; i < minCount; i++) {
                 //let item = {};
                 let containerItem = {};
           
                 let RollIndex = utility.getRandomInt(0, LootListItems.length - 1);
-                let indexRolled = []; // if its here it will not check anything :) if its outside of for loop(above) it will nto roll the same item twice
                 // make sure its not already rolled index
-                while (indexRolled.includes(RollIndex)) {
-                  RollIndex = utility.getRandomInt(0, LootListItems.length - 1);
-                }
+                // while (indexRolled.includes(RollIndex)) {
+                //   RollIndex = utility.getRandomInt(0, LootListItems.length - 1);
+                // }
                 // add current rolled index
                 indexRolled.push(RollIndex);
                 // getting rolled item
@@ -348,32 +360,20 @@ class LootController
                 let result = { success: false };
                 let maxAttempts = 1;
                 // attempt to add item x times
-                while (!result.success && maxAttempts) {
+                while (!result.success && maxAttempts > 0) {
                   //let currentTotal = 0;
                   // get basic width and height of the item
                   itemWidth = rolledRandomItemToPlace._props.Width;
                   itemHeight = rolledRandomItemToPlace._props.Height;
-                  // check if item is a preset
-                  // if (rolledRandomItemToPlace.preset != null) {
-                  //   // Prevent the same preset from spawning twice (it makes the client mad)
-                  //   if (addedPresets.includes(rolledRandomItemToPlace.preset._id)) {
-                  //     maxAttempts--;
-                  //     continue;
-                  //   }
-                  //   addedPresets.push(rolledRandomItemToPlace.preset._id);
-                  //   const size = helper_f.getItemSize(rolledRandomItemToPlace._id, rolledRandomItemToPlace.preset._items[0]._id, rolledRandomItemToPlace.preset._items);
-                  //   // Guns will need to load a preset of items
-                  //   rolledRandomItemToPlace._props.presetId = rolledRandomItemToPlace.preset._id;
-                  //   itemWidth = size[0];
-                  //   itemHeight = size[1];
-                  // }
+                  
                   result = helper_f.findSlotForItem(container2D, itemWidth, itemHeight);
                   maxAttempts--;
                 }
                 // finished attempting to insert item into container
           
                 // if we weren't able to find an item to fit after x tries then container is probably full
-                if (!result.success) break;
+                if (!result.success) 
+                  break;
           
                 // ----------------------------------------------------------------------------------------------------
                 // Paulo: Remove all duplicate items in same container. You never get dups on Live. So done it here too
@@ -386,27 +386,8 @@ class LootController
           
                 container2D = helper_f.fillContainerMapWithItem(container2D, result.x, result.y, itemWidth, itemHeight, result.rotation);
                 let rot = result.rotation ? 1 : 0;
-          
-                const hasP = ItemController.hasPreset(rolledRandomItemToPlace._id);
-                if(hasP) {
-                  const possibleWeaponPreset = ItemController.getStandardPreset(rolledRandomItemToPlace._id);
-                  // console.log("preset in box?");
-                  presetIterator: for(const itId of possibleWeaponPreset._items) {
-                    const present_item = ItemController.tryGetItem(itId._tpl);
-                    result = helper_f.findSlotForItem(container2D, present_item._props.Width, present_item._props.Height);
-                    if(!result)
-                      break presetIterator;
 
-                    _items.push({
-                      _id: utility.generateNewId(),
-                      _tpl: present_item._id,
-                      parentId: parentId,
-                      slotId: "main",
-                      location: { x: result.x, y: result.y, r: result.rotation }});
-                    
-                  }
-                  break mainIterator;
-                }
+                const localeTempl = DatabaseController.getDatabase().locales.global.en.templates[rolledRandomItemToPlace._id];
 
                 containerItem = {
                   _id: utility.generateNewIdQuick(),
@@ -416,6 +397,8 @@ class LootController
                   parentId: parentId,
                   slotId: "main",
                   location: { x: result.x, y: result.y, r: rot },
+                  itemNameForDebug: localeTempl.Name
+
                 };
           
                 let cartridges;
@@ -439,8 +422,8 @@ class LootController
                   // Magazine
                   idSuffix++;
                   cartridges = {
-                    _id: idPrefix + idSuffix.toString(16),
-                    // _id: utility.generateNewId(undefined, 3),
+                    // _id: idPrefix + idSuffix.toString(16),
+                    _id: utility.generateNewId(undefined, 3),
                     _tpl: rolledRandomItemToPlace._props.Cartridges[0]._props.filters[0].Filter[0],
                     parentId: parentId,
                     slotId: "cartridges",
@@ -457,8 +440,10 @@ class LootController
             let changedIds = {};
             for (const item of _items) {
 
-              const itemTemplateForNaming = DatabaseController.getDatabase().items[item._tpl];
-              item.itemNameForDebug = itemTemplateForNaming._props.ShortName;
+              const localeTempl = DatabaseController.getDatabase().locales.global.en.templates[item._tpl];
+              item.itemNameForDebug = localeTempl.Name
+              // const itemTemplateForNaming = DatabaseController.getDatabase().items[item._tpl];
+              // item.itemNameForDebug = itemTemplateForNaming._props.ShortName;
               const newId = utility.generateNewIdQuick();
               // const newId = utility.generateNewItemId();
               changedIds[item._id] = newId;
@@ -479,67 +464,26 @@ class LootController
        * @returns {Array} an array of loot item ids
        */
       static GenerateLootList(containerId, in_location) {
-        let LootList = [];
+        let lootList = [];
         let UniqueLootList = [];
         // get static container loot pools
         let ItemList = DatabaseController.getDatabase().locationConfigs.StaticLootTable[containerId];
-        // logger.logInfo(`Loot Item List Count :: ${ItemList.SpawnList.length}`);
-      
-          let itemsRemoved = {};
-          let numberOfItemsRemoved = 0;
-      
-          
-          LootList = ItemList.SpawnList;
-          LootList = LootList.filter(itemId => 
-            !itemId.QuestItem
-            && LootController.FilterItemByRarity(DatabaseController.getDatabase().items[itemId], itemsRemoved)
-            );
-        // for (const item of ItemList.SpawnList) {
-        // //   if (ItemParentsList.includes(item)) {
-        // //     logger.logWarning(`In Container ${containerId}: there is static loot ${item} as prohibited ParentId... skipping`);
-        // //     continue;
-        // //   }
-        //   const itemTemplate = DatabaseController.getDatabase().items[item];
-        //   if (typeof itemTemplate._props.LootExperience == "undefined") {
-        //     logger.logWarning(`itemTemplate._props.LootExperience == "undefined" for ${itemTemplate._id}`);
-        //     continue;
-        //   }
-      
-      
-        //   // --------------------------------------------
-        //   // Paulo: Filter out by Loot Rarity
-        //   if(
-        //     ItemList.SpawnList.length > 1 // More than 2 items to spawn
-        //     && !itemTemplate.QuestItem // Is not a quest item
-        //     && (!LootController.FilterItemByRarity(itemTemplate, itemsRemoved)) // Filtered by "Rarity"
-        //     ) 
-        //     {
-        //       numberOfItemsRemoved++;
-        //       continue; // If returned False then ignore this item
-        //     }
-      
-        //     // ------------------------------------------------------------------------------
-        //     // Paulo: Filter previously generated items, so we don't loads of nuts, bolts etc
-        //     // if(LootController.PreviouslyGeneratedItems.findIndex(x => x === item) !== -1) {
-        //     //   var countOfPrevItems = LootController.PreviouslyGeneratedItems.filter(x => x === item).length;
-        //     //   var previousItemMult = 1 - (countOfPrevItems * 0.05);
-        //     //   if(!LootController.FilterItemByRarity(itemTemplate, itemsRemoved, previousItemMult)) {
-        //     //     numberOfItemsRemoved++;
-        //     //     continue;
-        //     //   }
-        //     // }
+        let itemsRemoved = {};
+        let numberOfItemsRemoved = 0;
 
-        //     LootList.push(item);
-        // }
-        // logger.logDebug(`Loot Multiplier :: Number of Items Removed :: Total:${numberOfItemsRemoved} Common:${itemsRemoved.numberOfCommonRemoved} Uncommon:${itemsRemoved.numberOfUncommonRemoved} Rare:${itemsRemoved.numberOfRareRemoved} Superrare:${itemsRemoved.numberOfSuperrareRemoved}`);
-        
-        if(LootList.length === 0)
+        lootList = ItemList.SpawnList;
+        lootList = lootList.filter(itemId => 
+          !itemId.QuestItem
+          && LootController.FilterItemByRarity(DatabaseController.getDatabase().items[itemId], itemsRemoved)
+          );
+      
+        if(lootList.length === 0)
         {
             // If we have nothing, put a random item in there
-            LootList.push(ItemList.SpawnList[utility.getRandomInt(0, ItemList.SpawnList.length-1)]);
+            lootList.push(ItemList.SpawnList[utility.getRandomInt(0, ItemList.SpawnList.length-1)]);
         }
         // Unique/Distinct the List
-        UniqueLootList = [...new Set(LootList)];
+        UniqueLootList = [...new Set(lootList)];
         
         // LootController.PreviouslyGeneratedItems = LootController.PreviouslyGeneratedItems.concat(UniqueLootList)
 
@@ -584,6 +528,25 @@ class LootController
         UniqueLootList = [...new Set(LootList)];
         
         return UniqueLootList;
+      }
+
+      static GenerateWeaponBoxLootList(containerId, in_location, container2D) {
+
+        const lootList = [];
+        // get static container loot pools
+        const itemList = DatabaseController.getDatabase().locationConfigs.StaticLootTable[containerId].SpawnList
+        const presetList = itemList.filter(x => ItemController.hasPreset(x));
+        const selectedPresetId = presetList[utility.getRandomInt(0, presetList.length-1)];
+        if(selectedPresetId) {
+          const selectedPreset = ItemController.getStandardPreset(selectedPresetId);
+          if(selectedPreset) {
+            for(const presetItem of selectedPreset._items) {
+              lootList.push(presetItem._tpl);
+            }
+          }
+        }
+       
+        return [...new Set(lootList)];;
       }
 
       static GenerateWeaponLoot(ContainerId, _items) {
@@ -756,6 +719,28 @@ class LootController
           return count;
       }
 
+      static GetRandomHideoutRequiredItem() {
+        let randomItem = undefined;
+        const dbItems = ItemController.getDatabaseItems();
+        const dbItemKeys = Object.keys(dbItems);
+        while(randomItem === undefined)
+        {
+          const dbHideoutAreas = DatabaseController.getDatabase().hideout.areas;
+          const randomArea = dbHideoutAreas[utility.getRandomInt(0, dbHideoutAreas.length - 1)];
+          const randomAreaStageKeys = Object.keys(randomArea.stages);
+          const randomAreaStageKey = randomAreaStageKeys[utility.getRandomInt(0, randomAreaStageKeys.length - 1)];
+          const randomAreaStage = randomArea.stages[randomAreaStageKey];
+          if(randomAreaStage.requirements.length > 0) {
+            const randomAreaStageTemplateItems = randomAreaStage.requirements
+            .filter(x => x.templateId !== undefined && !ItemController.isMoney(x.templateId));
+            const randomAreaStageTemplate = randomAreaStageTemplateItems[utility.getRandomInt(0, randomAreaStageTemplateItems.length - 1)];
+            if(randomAreaStageTemplate)
+              randomItem = dbItems[randomAreaStageTemplate.templateId];
+          }
+        } 
+        return randomItem;
+      }
+
       static async GenerateDynamicLootLooseAsync(typeArray, output, locationLootChanceModifier, MapName)
       {
         await new Promise(function(myResolve, myReject) {
@@ -771,62 +756,58 @@ class LootController
        * @param {string} MapName 
        * @returns {number} count of generated items
        */
-      static GenerateDynamicLootLoose(typeArray, output, locationLootChanceModifier, MapName)
+      static GenerateDynamicLootLoose(typeArray, output, locationLootChanceModifier, in_mapName)
       {
         let count = 0;
         const currentUsedPositions = [];
         const currentUsedItems = [];
+        let filterByRarityOutput = {};
 
-        const dynamicLootTable = JSON.parse(fs.readFileSync(process.cwd() + `/db/locations/DynamicLootTable.json`));
-        const mapDynamicLootTable = dynamicLootTable[MapName];
+        const looseLootMultiplier = ConfigController.Configs["gameplay"].locationloot.DynamicLooseLootMultiplier;
+        let dbLocationDynamicLoot = DatabaseController.getDatabase().locations[in_mapName].loot.dynamic;
+        let dbLocationConfigs = DatabaseController.getDatabase().locationConfigs;
+        let dbLocationConfigLoot = DatabaseController.getDatabase().locationConfigs.DynamicLootTable[in_mapName];
+
+        // const dynamicLootTable = JSON.parse(fs.readFileSync(process.cwd() + `/db/locations/DynamicLootTable.json`));
+        const mapDynamicLootTable = dbLocationConfigLoot;// dynamicLootTable[in_mapName];
         // for (let itemLoot in typeArray) {
           // const lootData = typeArray[itemLoot];
         mapLoot: for(const lootData of typeArray) {
 
           const randomItems = [];
-          for (const key of Object.keys(mapDynamicLootTable)) {
-            const match = lootData.Id.toLowerCase();
-            if (match.includes(key)) {
-              const lootList = mapDynamicLootTable[key].SpawnList;
-              if(lootList.length === 0)
-                continue mapLoot;
 
-              for (const loot in lootList) {
-                let foundItem = DatabaseController.getDatabase().items[lootList[loot]];
-                randomItems.push(foundItem);
-              }
+          let spawnList = lootData.Items;
+          if(spawnList.length === 0 || utility.getPercentRandomBool(10)) {
+            const lootTable = mapDynamicLootTable[Object.keys(mapDynamicLootTable).find(x => lootData.Id.toLowerCase().includes(x))];
+            if(lootTable) {
+              spawnList = lootTable.SpawnList;
             }
           }
+          spawnList = spawnList.filter(x => 
+            this.FilterItemByRarity(DatabaseController.getDatabase().items[x], filterByRarityOutput, looseLootMultiplier)
+          );
 
-          const mapDynamicLootGeneratorItem = mapDynamicLootTable[lootData.Id];
+          // if empty spawn list and randomly not generate hideout item below
+          if(spawnList.length === 0 && utility.getPercentRandomBool(40))
+            continue;
+
+          for (const id of spawnList) {
+            const item = DatabaseController.getDatabase().items[id];
+            randomItems.push(item);
+          }
     
           const generatedItemId = utility.generateNewItemId();
           let randomItem = randomItems[utility.getRandomInt(0, randomItems.length - 1)];
           if(randomItem === undefined) {
-            const dbItems = ItemController.getDatabaseItems();
-            const dbItemKeys = Object.keys(dbItems);
-            while(randomItem === undefined)
-            {
-              const dbHideoutAreas = DatabaseController.getDatabase().hideout.areas;
-              const randomArea = dbHideoutAreas[utility.getRandomInt(0, dbHideoutAreas.length - 1)];
-              const randomAreaStageKeys = Object.keys(randomArea.stages);
-              const randomAreaStageKey = randomAreaStageKeys[utility.getRandomInt(0, randomAreaStageKeys.length - 1)];
-              const randomAreaStage = randomArea.stages[randomAreaStageKey];
-              if(randomAreaStage.requirements.length > 0) {
-                const randomAreaStageTemplateItems = randomAreaStage.requirements.filter(x=>x.templateId !== undefined);
-                const randomAreaStageTemplate = randomAreaStageTemplateItems[utility.getRandomInt(0, randomAreaStageTemplateItems.length - 1)];
-                randomItem = dbItems[randomAreaStageTemplate.templateId];
-              }
-            } 
-
-            // if(randomItem === undefined)
-            //   continue;
+            randomItem = LootController.GetRandomHideoutRequiredItem();
           }
+
+          const localeTempl = DatabaseController.getDatabase().locales.global.en.templates[randomItem._id];
 
           const createdItem = {
             _id: generatedItemId,
             _tpl: randomItem._id,
-            DebugName: ItemController.tryGetItem(randomItem._id)["_props"].Name
+            DebugName: localeTempl
           };
     
           // item creation
@@ -848,6 +829,16 @@ class LootController
             // this is not working, ignoring for now
             continue;
           }
+          if(ItemController.isMoney(randomItem._id))
+          {
+            // this is not working, ignoring for now
+            continue;
+          }
+          if(ItemController.isAmmo(randomItem._id))
+          {
+            // this is not working, ignoring for now
+            continue;
+          }
     
           let similarUsedPosition = currentUsedPositions.find(p => 
             mathjs.round(p.x, 3) == mathjs.round(lootData.Position.x, 3)
@@ -859,13 +850,6 @@ class LootController
     
             continue;
           }
-    
-          
-          let filterByRarityOutput = {};
-      
-          const looseLootMultiplier = ConfigController.Configs["gameplay"].locationloot.DynamicLooseLootMultiplier;
-          if(!this.FilterItemByRarity(randomItem, filterByRarityOutput, looseLootMultiplier))
-            continue;
     
             count++;
             output.Loot.push(createEndLootData);
